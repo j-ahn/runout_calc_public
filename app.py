@@ -21,11 +21,6 @@ from shapely.geometry import LineString, Polygon, Point
 import plotly.graph_objects as go
 import plotly.io as pio
 pio.renderers.default='browser'
-
-import flask
-from users import users_info
-user_pwd, user_names = users_info()
-_app_route = '/'
     
 # Colors
 bmao = '#f7923a'
@@ -266,33 +261,6 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 app.title = 'Runout Calculator'
 
-# Create a login route
-@app.server.route('/login', methods=['POST'])
-def route_login():
-    data = flask.request.form
-    username = data.get('username')
-    password = data.get('password')
-
-    if username not in user_pwd.keys() or  user_pwd[username] != password:
-        return flask.redirect('/login')
-    else:
-
-        # Return a redirect with
-        rep = flask.redirect(_app_route)
-
-        # Here we just store the given username in a cookie.
-        # Actual session cookies should be signed or use a JWT token.
-        rep.set_cookie('custom-auth-session', username)
-        return rep
-    
-# create a logout route
-@app.server.route('/logout', methods=['POST'])
-def route_logout():
-    # Redirect back to the index and remove the session cookie.
-    rep = flask.redirect('/login')
-    rep.set_cookie('custom-auth-session', '', expires=0)
-    return rep
-
 # App HTML layout
 styledict = {'display':'inline-block','vertical-align':'left', 'margin-top':'10px','margin-left':'20px','font-size':10,'font-family':'Verdana','textAlign':'center'}
 
@@ -364,25 +332,6 @@ backscarp = dbc.Checklist(
 
 backscarpdist = dcc.Input(id='backscarpdist-state', type='number', value=5, min=-100, max=100, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
 
-# Simple dash component login form.
-login_form = html.Div(
-    [
-        html.Form(
-            [
-                dbc.Row(
-                    [
-                        dbc.Col(dcc.Input(placeholder="username", name="username", type="text",style={'height' : '35px', 'width': '100px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})),
-                        dbc.Col(dcc.Input(placeholder="password", name="password",type="password",style={'height' : '35px', 'width': '100px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})),
-                        dbc.Col(dbc.Button("Login", type="submit", color="success"))
-                    ]
-                    )
-            ],
-            action="/login",
-            method="post",
-        )
-    ]
-)
-
 # Header
 header = dbc.Navbar(
     dbc.Container(
@@ -390,40 +339,18 @@ header = dbc.Navbar(
             dbc.Row(
                 [
                     dbc.Col(
-                        html.Img(
-                            id="logo",
-                            src="https://raw.githubusercontent.com/j-ahn/misc/main/logo.png",
-                            height="65px",
-                        ),
-                        md="auto",
-                    ),
-                    dbc.Col(
                         [
                             html.Div(
                                 [
                                     html.H3([
-                                        html.Span("Slope ", style={'color':bmao}),
-                                        html.Span("Runout ", style={'color':bmar}),
-                                        html.Span("Calculator ", style={'color':bmab})
-                                        ]),
-                                    html.H5("BMA Geotechnical Services"),
+                                        html.Span("Slope Runout Calculator")
+                                        ])
                                 ],
                                 id="app-title"
                             )
                         ],
                         md='auto',
                         align="center",
-                    ),
-                    dbc.Col(
-                        [
-                            html.Div(id='custom-auth-frame-1',
-                                       style={
-                                              'textAlign': 'center',
-                                       }
-                                       ),
-                        ],
-                        md='auto',
-                        align='right'
                     )
                 ],
                 align="center",
@@ -519,7 +446,6 @@ app.layout = dbc.Container(
 
 @app.callback(
     Output('dashboard', 'figure'),
-    Output('custom-auth-frame-1', 'children'),
     Output('markdown-frame','children'),
     Input('update_button', 'n_clicks'),
     State('standoff-state', 'value'),
@@ -542,36 +468,6 @@ app.layout = dbc.Container(
 
 
 def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, project, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, backscarp, backscarpdist):
-    
-    session_cookie = flask.request.cookies.get('custom-auth-session')
-    
-    if not session_cookie:
-        # If there's no cookie we need to login.
-        # Initiate plotly figure
-        fig = go.Figure()
-        fig.update_layout(template='simple_white', paper_bgcolor=bkgr)
-        fig.update_layout(
-        title=dict(text='Please log in',x=0.5,y=0.95,
-                   font=dict(family="Arial",size=20,color='#000000')
-                   )
-        )
-        
-        return [fig, login_form, '']
-    else:
-        
-        logout_output = html.Form(
-            [
-                dbc.Row(
-                    [
-                        dbc.Col(dbc.Button("Logout", type="submit", color="danger"))
-                    ]
-                    )
-            ],
-            action="/logout",
-            method="post",
-        )                      
-        
-
         
         if n_clicks >= 0:
             
@@ -585,8 +481,7 @@ def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy,
     
             fig = plot_runout(standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, prj, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, bkp, backscarpdist)
                             
-        return [fig, logout_output, markdowncard]
+        return [fig, markdowncard]
 
 if __name__ == '__main__':
     app.run_server()
-    
