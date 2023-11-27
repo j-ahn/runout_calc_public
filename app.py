@@ -14,7 +14,7 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output , State
 import dash_bootstrap_components as dbc
-import flask
+
 from shapely.ops import split, linemerge
 from shapely.geometry import LineString, Polygon, Point
 
@@ -259,7 +259,7 @@ external_stylesheets = [dbc.themes.SANDSTONE]
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 server = app.server
-app.title = 'Slope Runout Calculator'
+app.title = 'Runout Calculator'
 
 # App HTML layout
 styledict = {'display':'inline-block','vertical-align':'left', 'margin-top':'10px','margin-left':'20px','font-size':10,'font-family':'Verdana','textAlign':'center'}
@@ -351,17 +351,6 @@ header = dbc.Navbar(
                         ],
                         md='auto',
                         align="center",
-                    ),
-                    dbc.Col(
-                        [
-                            html.Div(id='custom-auth-frame-1',
-                                       style={
-                                              'textAlign': 'center',
-                                       }
-                                       ),
-                        ],
-                        md='auto',
-                        align='right'
                     )
                 ],
                 align="center",
@@ -479,8 +468,6 @@ app.layout = dbc.Container(
 
 
 def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, project, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, backscarp, backscarpdist):
-    
-
         
         if n_clicks >= 0:
             
@@ -498,4 +485,3 @@ def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy,
 
 if __name__ == '__main__':
     app.run_server()
-    
