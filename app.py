@@ -22,6 +22,11 @@ import plotly.graph_objects as go
 import plotly.io as pio
 pio.renderers.default='browser'
 
+import flask
+from users import users_info
+user_pwd, user_names = users_info()
+_app_route = '/'
+    
 # Colors
 bmao = '#f7923a'
 bmar = '#ee3b34'
@@ -59,7 +64,7 @@ def polygon_to_patch(polygon):
     return xn, yn
 
 # Main function
-def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, direction, project):
+def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, direction, project, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, bkp, backscarpdist):
     
     # Initiate plotly figure
     fig = go.Figure()
@@ -67,7 +72,27 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
     
     # Round all co-ordinates to 1 decimal place for simplification
     try:
-        sp_x, sp_y = textarea_to_list(spxy)
+        if manual == 'manual':
+            sp_x, sp_y = textarea_to_list(spxy)
+        else:
+            adj = slopeheight/math.tan(math.radians(slopeangle))
+            dl_x = failureheight/math.tan(math.radians(slopeangle))
+            m = math.tan(math.radians(failureangle))
+            c = failureheight-m*dl_x
+            
+            crest_x = (slopeheight-c)/m
+            bkp_x = adj+backscarpdist
+            bkp_y1 = m*bkp_x + c
+            bkp_y2 = math.tan(math.radians(slopeangle))*bkp_x
+            
+            if bkp == 'yes' and bkp_x < crest_x:
+                if backscarpdist >= 0:
+                    sp_x, sp_y = [0, dl_x, adj, bkp_x, adj+crestwidth], [0, failureheight, slopeheight, slopeheight, slopeheight]
+                else:
+                    sp_x, sp_y = [0, dl_x, bkp_x, adj, adj+crestwidth], [0, failureheight, bkp_y2, slopeheight, slopeheight]
+            else:
+                sp_x, sp_y = [0, dl_x, adj, crest_x, adj+crestwidth], [0, failureheight, slopeheight, slopeheight, slopeheight]
+            
         # Plot Slope profile
         fig.add_trace(go.Scatter(x=sp_x, y=sp_y, name = 'Slope', mode='lines', line=dict(color='black'), opacity=1.0, marker_size=0))
         
@@ -75,20 +100,22 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
         bund_width = 2*bund_height/math.tan(math.radians(37))
         
         # bund co-ordinates
-        if direction == 'left':
-            b_x = [-standoff+sp_x[0]]
-        else:
+        if direction == 'right' and manual == 'manual':
             b_x = [standoff+sp_x[0]]
+        else:
+            b_x = [-standoff+sp_x[0]]
+            
         b_y = [sp_y[0]]
         
         # Start of run-out
         if bund_height > 0:
-            if direction == 'left':
-                b_x.extend([b_x[0]+0.5*bund_width,
-                       b_x[0]+1.0*bund_width])
-            else:
+            if direction == 'right' and manual == 'manual':
                 b_x.extend([b_x[0]-0.5*bund_width,
                        b_x[0]-1.0*bund_width])
+            else:
+                b_x.extend([b_x[0]+0.5*bund_width,
+                       b_x[0]+1.0*bund_width])
+                
                 
             b_y.extend([b_y[0]+bund_height, b_y[0]])
             
@@ -101,7 +128,17 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
         print('No slope profile entered')
         
     try:
-        fs_x, fs_y = textarea_to_list(fsxy)
+        if manual == 'manual':
+            fs_x, fs_y = textarea_to_list(fsxy)
+        else:
+            if bkp == 'yes' and bkp_x < crest_x:
+                if backscarpdist >= 0:
+                    fs_x, fs_y = [dl_x, bkp_x, bkp_x], [failureheight, bkp_y1, slopeheight]
+                else:
+                    fs_x, fs_y = [dl_x, bkp_x, bkp_x], [failureheight, bkp_y1, bkp_y2]
+            else:
+                fs_x, fs_y = [dl_x, crest_x], [failureheight, slopeheight]
+            
         # Plot Failure surface
         fig.add_trace(go.Scatter(x=fs_x, y=fs_y, name = 'Failure', mode='lines', line=dict(color='red'), opacity=1.0, marker_size=0))
     except:
@@ -117,6 +154,7 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
     
     # FAILURE VOLUME calculations
     try:
+
         # Intersection point 1
         i_start = minimum_distance(fs_x[0], fs_y[0], sp_x, sp_y)
         ix1, iy1 = sp_x[i_start], sp_y[i_start]
@@ -164,6 +202,7 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
         # Add failed volume to plotly figure
         failure_volume = Polygon(linemerge([sp_lsf, fs_ls]))
         fv_x_p, fv_y_p = polygon_to_patch(failure_volume)
+            
         fig.add_trace(go.Scatter(x=fv_x_p, y=fv_y_p, name = "Failure volume = {0:.1f} m³/m".format(failure_volume.area*swell_factor), mode='lines', line=dict(color=bmar), opacity=0.2, marker_size=0, fillcolor=bmar, fill='toself', hoverinfo='skip'))
     
     except:
@@ -175,7 +214,7 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
     try:
         #  Find intersection point between run-out line and combined surface
         runout_length = 1000
-        if direction == 'right': runout_angle = 180-runout_angle
+        if direction == 'right' and manual=='manual': runout_angle = 180-runout_angle
         ro_x = [bt_x, bt_x+runout_length*math.cos(math.radians(runout_angle))]
         ro_y = [bt_y, bt_y+runout_length*math.sin(math.radians(runout_angle))]
         line_runout = LineString(merge(ro_x, ro_y))
@@ -223,22 +262,51 @@ def plot_runout(standoff, swell_factor, bund_height, runout_angle, spxy, fsxy, d
 # Initiate the app
 external_stylesheets = [dbc.themes.SANDSTONE]
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+
 server = app.server
 app.title = 'Runout Calculator'
+
+# Create a login route
+@app.server.route('/login', methods=['POST'])
+def route_login():
+    data = flask.request.form
+    username = data.get('username')
+    password = data.get('password')
+
+    if username not in user_pwd.keys() or  user_pwd[username] != password:
+        return flask.redirect('/login')
+    else:
+
+        # Return a redirect with
+        rep = flask.redirect(_app_route)
+
+        # Here we just store the given username in a cookie.
+        # Actual session cookies should be signed or use a JWT token.
+        rep.set_cookie('custom-auth-session', username)
+        return rep
+    
+# create a logout route
+@app.server.route('/logout', methods=['POST'])
+def route_logout():
+    # Redirect back to the index and remove the session cookie.
+    rep = flask.redirect('/login')
+    rep.set_cookie('custom-auth-session', '', expires=0)
+    return rep
 
 # App HTML layout
 styledict = {'display':'inline-block','vertical-align':'left', 'margin-top':'10px','margin-left':'20px','font-size':10,'font-family':'Verdana','textAlign':'center'}
 
 htmlcent = {'text-align':'center'}
+htmlright = {'text-align':'right'}
 
 # Dropdown and input fields, saved as variables
-standoff = dcc.Input(id='standoff-state', type='number', value=18, min=5, max=50, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+standoff = dcc.Input(id='standoff-state', type='number', value=18, min=0, max=50, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
 
-swellfactor = dcc.Input(id='swellfactor-state', type='number', value=1.3, min=0.8, max=2, step=0.05, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'left', 'textAlign' : 'center'})
+swellfactor = dcc.Input(id='swellfactor-state', type='number', value=1.3, min=0.8, max=2, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'left', 'textAlign' : 'center'})
 
-bundheight = dcc.Input(id='bundheight-state', type='number', value=2, min=0, max=5, step=0.1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+bundheight = dcc.Input(id='bundheight-state', type='number', value=2, min=0, max=5, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
 
-runoutangle = dcc.Input(id='runoutangle-state', type='number', value=37, min=1, max=89, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'left', 'textAlign':'center',})
+runoutangle = dcc.Input(id='runoutangle-state', type='number', value=37, min=1, max=89, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'left', 'textAlign':'center'})
 
 directions = ['left', 'right']
 direction = dbc.RadioItems(
@@ -254,18 +322,66 @@ project = dbc.Checklist(
     value=["yes"],
     switch=True,
     inline=True
-    
 )
 
 spxy = dcc.Textarea(
         id='spxy-state',
         value = "0.0	0.0\n3.5	5.2\n6.4	11.6\n7.1	16.5\n9.0	21.6\n12.4	27.7\n16.5	32.3\n22.1	35.6\n28.8	36.0",
-        style={'width': '90%', 'height': 293, 'resize' : 'none'})
+        style={'width': '90%', 'height': 226})
 
 fsxy = dcc.Textarea(
         id='fsxy-state',
         value = "6.4	11.6\n14.3	17.7\n18.6	22.9\n22.1	35.6",
-        style={'width': '90%', 'height': 293, 'resize' :  'none'})
+        style={'width': '90%', 'height': 104})
+
+# Slope Generator 
+manuals = ['manual', 'parameterised']
+manual = dbc.RadioItems(
+                id="manual-state",
+                options=[{"label": x, "value": x} for x in manuals],
+                value="manual",
+                inline=True
+            )
+
+slopeheight = dcc.Input(id='slopeheight-state', type='number', value=36, min=1, max=100, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+slopeangle = dcc.Input(id='slopeangle-state', type='number', value=65, min=1, max=90, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+crestwidth = dcc.Input(id='crestwidth-state', type='number', value=10, min=1, max=100, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+failureheight = dcc.Input(id='failureheight-state', type='number', value=12, min=0, max=100, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+failureangle = dcc.Input(id='failureangle-state', type='number', value=35, min=1, max=90, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+# Slope Generator 
+backscarp = dbc.Checklist(
+    id="backscarp-state",
+    options=[{"label": "Tension Crack", "value": "no"}],
+    value=["no"],
+    switch=True,
+    inline=True
+)
+
+backscarpdist = dcc.Input(id='backscarpdist-state', type='number', value=5, min=-100, max=100, step=1, style={'height' : '20px', 'width': '50px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})
+
+# Simple dash component login form.
+login_form = html.Div(
+    [
+        html.Form(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(dcc.Input(placeholder="username", name="username", type="text",style={'height' : '35px', 'width': '100px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})),
+                        dbc.Col(dcc.Input(placeholder="password", name="password",type="password",style={'height' : '35px', 'width': '100px', 'display':'inline-block', 'margin-left':'5px','vertical-align':'middle'})),
+                        dbc.Col(dbc.Button("Login", type="submit", color="success"))
+                    ]
+                    )
+            ],
+            action="/login",
+            method="post",
+        )
+    ]
+)
 
 # Header
 header = dbc.Navbar(
@@ -276,7 +392,7 @@ header = dbc.Navbar(
                     dbc.Col(
                         html.Img(
                             id="logo",
-                            src="https://raw.githubusercontent.com/j-ahn/misc/main/favicon.png",
+                            src="https://raw.githubusercontent.com/j-ahn/misc/main/logo.png",
                             height="65px",
                         ),
                         md="auto",
@@ -290,14 +406,25 @@ header = dbc.Navbar(
                                         html.Span("Runout ", style={'color':bmar}),
                                         html.Span("Calculator ", style={'color':bmab})
                                         ]),
-                                    html.P("Jiwoo Ahn"),
+                                    html.H5("BMA Geotechnical Services"),
                                 ],
                                 id="app-title"
                             )
                         ],
-                        md=True,
+                        md='auto',
                         align="center",
                     ),
+                    dbc.Col(
+                        [
+                            html.Div(id='custom-auth-frame-1',
+                                       style={
+                                              'textAlign': 'center',
+                                       }
+                                       ),
+                        ],
+                        md='auto',
+                        align='right'
+                    )
                 ],
                 align="center",
             ),
@@ -311,38 +438,65 @@ header = dbc.Navbar(
 inputscard = dbc.Card(color='light',children=[
                           dbc.CardHeader("Inputs", style={'font-weight':'bold'}),
                           dbc.CardBody([html.Div([
-                              
-                              html.Div(html.H6("Geometry", style={'font-style':'italic', 'text-align':'center'})),
-                                  dbc.Row([
-                                      dbc.Col(html.Div([html.P("Slope (x,y)"),spxy]), style=htmlcent),
-                                      dbc.Col(html.Div([html.P("Failure (x,y)"),fsxy], style=htmlcent))
-                                      ])
-                                  ]),
-                          
-                              html.Hr(),
-                          
                               html.Div([
-                                  html.Div(html.H6("Parameters", style={'font-style':'italic', 'text-align':'center'})),
-                                  html.Div([html.Label(["Standoff (m):",standoff])], style=htmlcent),
-                                  html.Div([html.Label(["Swell factor:",swellfactor])], style=htmlcent),
-                                  html.Div([html.Label(["Bund height (m):",bundheight])], style=htmlcent),
-                                  html.Div([html.Label(["Runout Angle (°):",runoutangle])], style=htmlcent),
-                                  html.Div([html.Label(["Slope direction:"])], style=htmlcent),
-                                  html.Div([direction], style=htmlcent),
-                                  html.Div([html.Label([project])], style=htmlcent),
-                                  html.Div([dbc.Button('Update Graph', id='update_button', n_clicks=0, color="primary", style={"margin": "5px"})], style=htmlcent)
+                                  html.Div(html.H5("Parameters", style={'font-style':'italic', 'text-align':'center'})),
+                                  dbc.Row([
+                                      dbc.Col([html.Div([html.Label(["Standoff (m):",standoff])], style=htmlright),
+                                               html.Div([html.Label(["Bund height (m):",bundheight])], style=htmlright),
+                                               html.Div([html.Label(["Swell factor:",swellfactor])], style=htmlright),
+                                               html.Div([html.Label(["Runout angle (°):",runoutangle])], style=htmlright)
+                                           ]),
+                                      dbc.Col([html.Div([html.Label([project])], style=htmlcent),
+                                               html.Div([html.Label([manual])], style=htmlcent),
+                                               html.Div([dbc.Button('Update Graph', id='update_button', n_clicks=0, color="primary", style={"margin": "5px"})], style=htmlcent)
+                                           ])
+                                      ]),
+                                  
+                                  html.Hr(),
+                                  
+                                  html.Div(html.H5("Geometry", style={'font-style':'italic', 'text-align':'center'})),
+                                      dbc.Row([
+                                          dbc.Col(html.Div([html.H5("Manual", style=htmlcent),
+                                                            dbc.Row([dbc.Col([html.H6("Direction :", style={'text-align':'right'})], md=5),
+                                                                     dbc.Col([direction], md=7)
+                                                                ]),
+                                                            dbc.Row([
+                                                                dbc.Col([html.H6("Slope (x,y)", style=htmlcent),spxy]),
+                                                                dbc.Col([html.H6("Failure (x,y)", style=htmlcent),fsxy])
+                                                                ])
+                                                            ])),
+                                          dbc.Col([html.Div([html.H5("Parameterised")], style=htmlcent),
+                                                  html.Div([html.Label(["Slope height (m):",slopeheight])], style=htmlright),
+                                                  html.Div([html.Label(["Slope angle (°):",slopeangle])], style=htmlright),
+                                                  html.Div([html.Label(["Crest width (m):",crestwidth])], style=htmlright),
+                                                  html.Hr(),
+                                                  html.Div([html.Label(["Daylighting height (m):",failureheight])], style=htmlright),
+                                                  html.Div([html.Label(["Basal structure angle (°):",failureangle])], style=htmlright),
+                                                  html.Hr(),
+                                                  html.Div([html.Label([backscarp])], style=htmlright),
+                                                  html.Div([html.Label(["Crack distance (m):",backscarpdist])], style=htmlright)
+                                                  ])
+                                      ])
                                   ])
                               ])
                           ])
-                  
+                      ])
+        
+        
 runoutgraph = dbc.Card(color='light',children=[dbc.CardHeader("Output", style={'font-weight':'bold'}),
-                        dcc.Graph('dashboard',style={'height': '72vh'},
+                        dcc.Graph('dashboard',style={'height': '65vh'},
                                   config={'displayModeBar': True, 
                                           'displaylogo':False,
                                           'toImageButtonOptions': {'format': 'svg','filename': 'runout_calculator'},
                                           'modeBarButtonsToRemove':['hoverClosestPie']})])
 
-markdowncard = html.Div(dcc.Markdown("Enter slope and failure co-ordinates from bottom to top (1 decimal place) as tab delimited strings (recommend copy and pasting out of excel). Start and finish points of failure surface must co-incide with points on the slope profile (app will snap to nearest node)."), style = {'font-size':12,'font-family':'Verdana','textAlign':'center'})
+markdowncard = html.Div(dcc.Markdown('''
+                                     Disclaimer: This is a cut-fill calculator and does not predict failure mechanisms or run-out distances. Only applicable to slumping events where there is no rotational movement of the falling material. This tool does not replace assessment by a Geotechnical Engineer.
+                                     
+                                     For manual geometry mode, enter slope and failure co-ordinates from bottom to top (1 decimal place) as tab delimited strings (recommend copy and pasting out of excel). Start and finish points of failure surface must co-incide with points on the slope profile (app will snap to nearest node).
+                                     
+                                     Contact: jiwoo.ahn@bhp.com
+                                     '''), style = {'font-size':12,'font-family':'Verdana','textAlign':'center'})
 
 app.layout = dbc.Container(
     [
@@ -351,14 +505,13 @@ app.layout = dbc.Container(
         html.Hr(),
         
         dbc.Row([
-            dbc.Col(inputscard, md=3),
-            
-            dbc.Col(runoutgraph, md=9)
+            dbc.Col(inputscard, md=4),
+            dbc.Col(runoutgraph, md=8)
         ]),
         
         html.Hr(),
         
-        markdowncard
+        html.Div(id='markdown-frame')
     ],
     fluid=True
 )
@@ -366,6 +519,8 @@ app.layout = dbc.Container(
 
 @app.callback(
     Output('dashboard', 'figure'),
+    Output('custom-auth-frame-1', 'children'),
+    Output('markdown-frame','children'),
     Input('update_button', 'n_clicks'),
     State('standoff-state', 'value'),
     State('swellfactor-state', 'value'),
@@ -374,17 +529,64 @@ app.layout = dbc.Container(
     State('spxy-state', 'value'),
     State('fsxy-state', 'value'),
     State('direction-state','value'),
-    State('project-state','value')
+    State('project-state','value'),
+    State('manual-state','value'),
+    State('slopeheight-state', 'value'),
+    State('slopeangle-state', 'value'),
+    State('crestwidth-state', 'value'),
+    State('failureheight-state','value'),
+    State('failureangle-state','value'),
+    State('backscarp-state','value'),
+    State('backscarpdist-state','value')
 )
 
-def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, project):
-    if n_clicks >= 0:
-        if project:
-            prj = 'yes'
-        else:
-            prj= 'no'
-        fig = plot_runout(standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, prj)
-    return fig
+
+def update_graph(n_clicks, standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, project, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, backscarp, backscarpdist):
+    
+    session_cookie = flask.request.cookies.get('custom-auth-session')
+    
+    if not session_cookie:
+        # If there's no cookie we need to login.
+        # Initiate plotly figure
+        fig = go.Figure()
+        fig.update_layout(template='simple_white', paper_bgcolor=bkgr)
+        fig.update_layout(
+        title=dict(text='Please log in',x=0.5,y=0.95,
+                   font=dict(family="Arial",size=20,color='#000000')
+                   )
+        )
+        
+        return [fig, login_form, '']
+    else:
+        
+        logout_output = html.Form(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(dbc.Button("Logout", type="submit", color="danger"))
+                    ]
+                    )
+            ],
+            action="/logout",
+            method="post",
+        )                      
+        
+
+        
+        if n_clicks >= 0:
+            
+            print(n_clicks)
+            
+            if project: prj = 'yes'
+            else: prj= 'no'
+            
+            if backscarp: bkp = 'yes'
+            else: bkp = 'no'
+    
+            fig = plot_runout(standoff, swellfactor, bundheight, runoutangle, spxy, fsxy, direction, prj, manual, slopeheight, slopeangle, crestwidth, failureheight, failureangle, bkp, backscarpdist)
+                            
+        return [fig, logout_output, markdowncard]
 
 if __name__ == '__main__':
     app.run_server()
+    
