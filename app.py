@@ -21,11 +21,6 @@ from shapely.geometry import LineString, Polygon, Point
 import plotly.graph_objects as go
 import plotly.io as pio
 pio.renderers.default='browser'
-
-import flask
-from users import users_info
-user_pwd, user_names = users_info()
-_app_route = '/'
     
 # Colors
 bmao = '#f7923a'
